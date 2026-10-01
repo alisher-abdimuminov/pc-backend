@@ -1,0 +1,17 @@
+[Unit]
+Description=pc daemon
+Requires=pc-backend.socket
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/home/ali/pc/backend2
+ExecStart=/home/ali/pc/backend2/.venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --bind unix:/run/pc-backend.sock \
+          config.wsgi:application
+
+[Install]
+WantedBy=multi-user.target

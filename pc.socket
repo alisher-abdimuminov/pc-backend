@@ -1,0 +1,8 @@
+[Unit]
+Description=pc-backend socket
+
+[Socket]
+ListenStream=/run/pc-backend.sock
+
+[Install]
+WantedBy=sockets.target
