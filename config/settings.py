@@ -136,6 +136,7 @@ HEMIS = {
 	"TEACHER_ME": config("HEMIS_TEACHER_ME", cast=str),
 }
 
+HEMIS_GROUPS_URL = "https://student.samdpi.uz/rest/v1/data/group-list"
 HEMIS_GROUPS_TOKEN = config("HEMIS_GROUPS_TOKEN")
 
 # rest framework
