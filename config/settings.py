@@ -136,6 +136,8 @@ HEMIS = {
 	"TEACHER_ME": config("HEMIS_TEACHER_ME", cast=str),
 }
 
+HEMIS_GROUPS_TOKEN = config("HEMIS_GROUPS_TOKEN")
+
 # rest framework
 REST_FRAMEWORK = {
 	"DEFAULT_AUTHENTICATION_CLASSES": (
@@ -155,12 +157,16 @@ SIMPLE_JWT = {
 # attendance
 ATTENDANCE = {
 	# GPS aniqligi (metr) shu qiymatdan katta bo'lsa attempt rad etiladi
-	"MAX_LOCATION_ACCURACY": config("ATTENDANCE_MAX_LOCATION_ACCURACY", default=100, cast=int),
+	"MAX_LOCATION_ACCURACY": config(
+		"ATTENDANCE_MAX_LOCATION_ACCURACY", default=100, cast=int
+	),
 	# deepface sozlamalari
 	"FACE_MODEL": config("ATTENDANCE_FACE_MODEL", default="ArcFace", cast=str),
 	"FACE_DETECTOR": config("ATTENDANCE_FACE_DETECTOR", default="retinaface", cast=str),
 	"FACE_DISTANCE_METRIC": "cosine",
-	"FACE_ANTI_SPOOFING": config("ATTENDANCE_FACE_ANTI_SPOOFING", default=True, cast=bool),
+	"FACE_ANTI_SPOOFING": config(
+		"ATTENDANCE_FACE_ANTI_SPOOFING", default=True, cast=bool
+	),
 }
 
 # unfold
