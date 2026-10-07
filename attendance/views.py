@@ -1,35 +1,44 @@
 from datetime import date, timedelta
 
 from django.db.models import Count, Prefetch, Q
-from rest_framework.pagination import PageNumberPagination
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics, status, viewsets
+from rest_framework import decorators, generics, status, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from attendance.hemis import sync_hemis_groups
 from users.models import User
-from users.permissions import Can, IsStaffRole, IsStudent, ModelPermission, user_can, visible_groups
+from users.permissions import (
+	Can,
+	IsStaffRole,
+	IsStudent,
+	ModelPermission,
+	user_can,
+	visible_groups,
+)
 
 from .models import Attendance, AttendanceAttempt, AttendanceStep, Location, Schedule
 from .serializers import (
 	AttemptListSerializer,
 	AttemptSerializer,
-	StudentAttemptSerializer,
 	AttendanceDetailSerializer,
-	AttendanceSummarySerializer,
 	AttendanceSerializer,
+	AttendanceSummarySerializer,
 	CheckInSerializer,
 	DayStateSerializer,
 	LocationCheckSerializer,
 	LocationSerializer,
 	ScheduleSerializer,
+	StudentAttemptSerializer,
 )
 from .services import (
+	ERROR_MESSAGES,
 	LOCATION_TOKEN_MAX_AGE,
 	CheckInError,
-	ERROR_MESSAGES,
 	check_in,
 	day_state,
 	day_steps,
@@ -62,7 +71,10 @@ def attendance_queryset():
 		Prefetch(
 			"steps",
 			queryset=AttendanceStep.objects.order_by("step").prefetch_related(
-				Prefetch("attempts", queryset=AttendanceAttempt.objects.order_by("attempted_at"))
+				Prefetch(
+					"attempts",
+					queryset=AttendanceAttempt.objects.order_by("attempted_at"),
+				)
 			),
 		)
 	)
@@ -77,7 +89,11 @@ class TodayView(APIView):
 	permission_classes = (IsStudent,)
 
 	def get(self, request):
-		return Response(DayStateSerializer(day_state(request.user), context={"request": request}).data)
+		return Response(
+			DayStateSerializer(
+				day_state(request.user), context={"request": request}
+			).data
+		)
 
 
 class LocationCheckView(APIView):
@@ -93,16 +109,24 @@ class LocationCheckView(APIView):
 		serializer.is_valid(raise_exception=True)
 		schedule = schedule_for(request.user, timezone.localdate())
 		if not schedule:
-			return Response({"detail": "Bugun amaliyot kuni emas"}, status=status.HTTP_400_BAD_REQUEST)
+			return Response(
+				{"detail": "Bugun amaliyot kuni emas"},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
 
-		result = verify_location(request.user, schedule.location, **serializer.validated_data)
+		result = verify_location(
+			request.user, schedule.location, **serializer.validated_data
+		)
 		return Response(
 			{
 				"ok": result.ok,
 				"error_code": result.error_code,
 				"message": result.message,
 				"distance": result.distance,
-				"location": {"uuid": schedule.location.uuid, "name": schedule.location.name},
+				"location": {
+					"uuid": schedule.location.uuid,
+					"name": schedule.location.name,
+				},
 				"token": result.token or None,
 				"expires_in": LOCATION_TOKEN_MAX_AGE if result.ok else None,
 			}
@@ -131,7 +155,9 @@ class CheckInView(APIView):
 		return Response(
 			{
 				"attempt": StudentAttemptSerializer(attempt).data,
-				"state": DayStateSerializer(day_state(request.user), context=context).data,
+				"state": DayStateSerializer(
+					day_state(request.user), context=context
+				).data,
 			},
 			status=status.HTTP_201_CREATED,
 		)
@@ -144,14 +170,26 @@ class MySchedulesView(APIView):
 		user = request.user
 		group_q = Q(group_id=user.group_id) if user.group_id else Q(pk__in=[])
 		schedules = (
-			Schedule.objects.filter(Q(user=user) | group_q, is_active=True, end_date__gte=timezone.localdate())
+			Schedule.objects.filter(
+				Q(user=user) | group_q,
+				is_active=True,
+				end_date__gte=timezone.localdate(),
+			)
 			.select_related("location", "group", "user")
 			.order_by("start_date")
 		)
-		return Response(ScheduleSerializer(schedules, many=True, context={"request": request}).data)
+		return Response(
+			ScheduleSerializer(schedules, many=True, context={"request": request}).data
+		)
 
 
 # --- o'qituvchi / dekan / admin ---
+
+
+@decorators.api_view(http_method_names=["POST"])
+def sync_groups(request: HttpRequest):
+	sync_hemis_groups()
+	return Response({"status": "ok"})
 
 
 class GroupListView(APIView):
@@ -167,7 +205,9 @@ class GroupListView(APIView):
 		groups = groups.prefetch_related(
 			Prefetch(
 				"schedules",
-				queryset=Schedule.objects.filter(is_active=True, end_date__gte=today).select_related("location"),
+				queryset=Schedule.objects.filter(
+					is_active=True, end_date__gte=today
+				).select_related("location"),
 				to_attr="active_schedules",
 			)
 		)
@@ -192,12 +232,16 @@ def _student_row(request, student, attendance, steps=None):
 		"uuid": student.uuid,
 		"full_name": student.full_name or student.username,
 		"username": student.username,
-		"image": request.build_absolute_uri(student.image.url) if student.image else None,
+		"image": request.build_absolute_uri(student.image.url)
+		if student.image
+		else None,
 		"is_active": student.is_active,
 		"attendance_uuid": attendance.uuid if attendance else None,
 		# smena faqat muvaffaqiyatli qadamdan keyin qulflanadi - unga qadar ko'rsatilmaydi
 		"shift": attendance.shift if attendance and passed_steps(attendance) else None,
-		"passed_steps": sorted(s.step for s in attendance.steps.all() if s.success) if attendance else [],
+		"passed_steps": sorted(s.step for s in attendance.steps.all() if s.success)
+		if attendance
+		else [],
 		# har bir qadam holati: passed | missed | available | upcoming; amaliyot kuni bo'lmasa - null
 		"steps": steps,
 	}
@@ -218,7 +262,9 @@ class GroupAttendanceView(APIView):
 			.prefetch_related(
 				Prefetch(
 					"attendances",
-					queryset=Attendance.objects.filter(date=day).prefetch_related("steps"),
+					queryset=Attendance.objects.filter(date=day).prefetch_related(
+						"steps"
+					),
 					to_attr="day_attendances",
 				)
 			)
@@ -232,7 +278,9 @@ class GroupAttendanceView(APIView):
 			if schedule_for(student, day):
 				practice_students += 1
 				passed = passed_steps(attendance)
-				_, states = day_steps(passed, attendance.shift if passed else None, day, now)
+				_, states = day_steps(
+					passed, attendance.shift if passed else None, day, now
+				)
 				steps = [st.status for st in states]
 			rows.append(_student_row(request, student, attendance, steps))
 
@@ -241,7 +289,10 @@ class GroupAttendanceView(APIView):
 				"group": {
 					"uuid": group.uuid,
 					"name": group.name,
-					"teacher": {"uuid": group.teacher.uuid, "full_name": group.teacher.full_name}
+					"teacher": {
+						"uuid": group.teacher.uuid,
+						"full_name": group.teacher.full_name,
+					}
 					if group.teacher
 					else None,
 				},
@@ -260,11 +311,15 @@ class GroupReportView(APIView):
 	def get(self, request, uuid):
 		group = get_object_or_404(visible_groups(request.user), uuid=uuid)
 		date_to = parse_date(request.query_params.get("to"), timezone.localdate())
-		date_from = parse_date(request.query_params.get("from"), date_to - timedelta(days=30))
+		date_from = parse_date(
+			request.query_params.get("from"), date_to - timedelta(days=30)
+		)
 		if date_from > date_to or (date_to - date_from).days > 120:
 			raise ValidationError({"detail": "Davr noto'g'ri yoki 120 kundan oshadi"})
 
-		students = list(User.objects.filter(group=group, role="student").order_by("full_name"))
+		students = list(
+			User.objects.filter(group=group, role="student").order_by("full_name")
+		)
 		schedules = list(
 			Schedule.objects.filter(
 				Q(group=group) | Q(user__in=students),
@@ -281,7 +336,9 @@ class GroupReportView(APIView):
 				days.append(day)
 			day += timedelta(days=1)
 
-		attendances = Attendance.objects.filter(student__in=students, date__in=days).prefetch_related("steps")
+		attendances = Attendance.objects.filter(
+			student__in=students, date__in=days
+		).prefetch_related("steps")
 		by_student = {}
 		for a in attendances:
 			by_student.setdefault(a.student_id, {})[a.date.isoformat()] = {
@@ -317,11 +374,20 @@ class StudentAttendancesView(APIView):
 
 	def get(self, request, uuid):
 		student = get_object_or_404(
-			User.objects.filter(role="student", group__in=visible_groups(request.user)), uuid=uuid
+			User.objects.filter(role="student", group__in=visible_groups(request.user)),
+			uuid=uuid,
 		)
 		can_attempts = user_can(request.user, "attendance.view_attendanceattempt")
-		serializer = AttendanceDetailSerializer if can_attempts else AttendanceSummarySerializer
-		attendances = (attendance_queryset() if can_attempts else Attendance.objects.select_related("schedule__location").prefetch_related("steps"))
+		serializer = (
+			AttendanceDetailSerializer if can_attempts else AttendanceSummarySerializer
+		)
+		attendances = (
+			attendance_queryset()
+			if can_attempts
+			else Attendance.objects.select_related(
+				"schedule__location"
+			).prefetch_related("steps")
+		)
 		attendances = attendances.filter(student=student).order_by("-date")
 		if day := parse_date(request.query_params.get("date")):
 			attendances = attendances.filter(date=day)
@@ -332,12 +398,16 @@ class StudentAttendancesView(APIView):
 					"full_name": student.full_name or student.username,
 					"username": student.username,
 					"group": student.group.name if student.group else None,
-					"image": request.build_absolute_uri(student.image.url) if student.image else None,
+					"image": request.build_absolute_uri(student.image.url)
+					if student.image
+					else None,
 					"is_active": student.is_active,
 				},
 				# urinishlar (rasm, GPS, yuz masofasi) - faqat ruxsat bo'lsa; aks holda faqat qadamlar holati
 				"can_view_attempts": can_attempts,
-				"attendances": serializer(attendances[:60], many=True, context={"request": request}).data,
+				"attendances": serializer(
+					attendances[:60], many=True, context={"request": request}
+				).data,
 			}
 		)
 
@@ -402,7 +472,10 @@ class AttemptFiltersView(APIView):
 	def get(self, request):
 		return Response(
 			{
-				"error_codes": [{"code": code, "label": label} for code, label in ERROR_MESSAGES.items()],
+				"error_codes": [
+					{"code": code, "label": label}
+					for code, label in ERROR_MESSAGES.items()
+				],
 			}
 		)
 
@@ -438,7 +511,9 @@ class DashboardView(APIView):
 		today = timezone.localdate()
 		groups = visible_groups(request.user)
 		students = list(
-			User.objects.filter(role="student", group__in=groups).values_list("id", "group_id")
+			User.objects.filter(role="student", group__in=groups).values_list(
+				"id", "group_id"
+			)
 		)
 		student_ids = {sid for sid, _ in students}
 		days = [today - timedelta(days=i) for i in range(self.TREND_DAYS - 1, -1, -1)]
@@ -493,14 +568,22 @@ class DashboardView(APIView):
 			gid = student_group.get(sid)
 			row = group_rows.setdefault(
 				gid,
-				{"uuid": group_uuids.get(gid), "name": group_names.get(gid, "—"), "expected": 0, "came": 0, "full": 0},
+				{
+					"uuid": group_uuids.get(gid),
+					"name": group_names.get(gid, "—"),
+					"expected": 0,
+					"came": 0,
+					"full": 0,
+				},
 			)
 			row["expected"] += 1
 			row["came"] += sid in came[today]
 			row["full"] += sid in full[today]
 
 		recent_failures = (
-			AttendanceAttempt.objects.filter(step__attendance__student_id__in=student_ids, success=False)
+			AttendanceAttempt.objects.filter(
+				step__attendance__student_id__in=student_ids, success=False
+			)
 			.select_related("step__attendance__student__group", "location")
 			.order_by("-attempted_at")[:8]
 		)
@@ -511,7 +594,9 @@ class DashboardView(APIView):
 				"totals": {
 					"students": len(student_ids),
 					"groups": len(group_names),
-					"locations": len({s.location_id for s in schedules if s.end_date >= today}),
+					"locations": len(
+						{s.location_id for s in schedules if s.end_date >= today}
+					),
 					"schedules": sum(1 for s in schedules if s.end_date >= today),
 				},
 				"today": {
@@ -525,7 +610,11 @@ class DashboardView(APIView):
 					"success": success_today,
 					"failed": failed_today,
 					"by_error": [
-						{"code": code, "label": ERROR_MESSAGES.get(code, code), "count": n}
+						{
+							"code": code,
+							"label": ERROR_MESSAGES.get(code, code),
+							"count": n,
+						}
 						for code, n in sorted(by_error.items(), key=lambda x: -x[1])
 					],
 				}
@@ -541,9 +630,13 @@ class DashboardView(APIView):
 					}
 					for d in days
 				],
-				"groups": sorted(group_rows.values(), key=lambda r: (-r["expected"], r["name"])),
+				"groups": sorted(
+					group_rows.values(), key=lambda r: (-r["expected"], r["name"])
+				),
 				# rasmli urinishlar - faqat urinishlarni ko'rish ruxsati bo'lsa
-				"recent_failures": AttemptListSerializer(recent_failures, many=True, context={"request": request}).data
+				"recent_failures": AttemptListSerializer(
+					recent_failures, many=True, context={"request": request}
+				).data
 				if can_attempts
 				else [],
 			}
@@ -601,7 +694,9 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 		schedule = self.get_object()
 		if schedule.attendances.exists():
 			return Response(
-				{"detail": "Jadval bo'yicha davomat bor. O'chirish o'rniga nofaol qiling"},
+				{
+					"detail": "Jadval bo'yicha davomat bor. O'chirish o'rniga nofaol qiling"
+				},
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 		return super().destroy(request, *args, **kwargs)

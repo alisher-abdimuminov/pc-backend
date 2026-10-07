@@ -15,6 +15,7 @@ urlpatterns = [
 	path("my/schedules/", views.MySchedulesView.as_view()),
 	# o'qituvchi / dekan / admin
 	path("groups/", views.GroupListView.as_view()),
+	path("groups/sync-groups/", views.sync_groups),
 	path("groups/<uuid:uuid>/", views.GroupAttendanceView.as_view()),
 	path("groups/<uuid:uuid>/report/", views.GroupReportView.as_view()),
 	path("students/<uuid:uuid>/", views.StudentAttendancesView.as_view()),
